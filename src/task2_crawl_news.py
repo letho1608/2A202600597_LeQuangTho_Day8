@@ -24,39 +24,30 @@ def setup_directory():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# TODO: Điền danh sách URL bài báo cần crawl
+# Danh sách URL bài báo về nghệ sĩ liên quan tới ma tuý cuối năm 2024 - 2026
 ARTICLE_URLS = [
-    # Ví dụ:
-    # "https://vnexpress.net/...",
-    # "https://tuoitre.vn/...",
-    # "https://thanhnien.vn/...",
+    "https://tuoitre.vn/ca-si-chi-dan-nguoi-mau-an-tay-co-tien-truc-phuong-to-chuc-su-dung-ma-tuy-ra-sao-20241114085434125.htm",
+    "https://plo.vn/truy-to-ca-si-chi-dan-nguoi-mau-an-tay-va-truc-phuong-post818045.html",
+    "https://vov.vn/phap-luat/khoi-to-ca-si-chi-dan-nguoi-mau-andrea-ve-hanh-vi-to-chuc-su-dung-ma-tuy-post1135241.vov",
+    "https://thanhnien.vn/ca-si-chi-dan-bi-tam-giu-vi-nghi-lien-quan-den-ma-tuy-185241111111327157.htm",
+    "https://kenh14.vn/chi-dan-va-an-tay-bi-tam-giu-vi-lien-quan-den-ma-tuy-20241111112447936.chn"
 ]
 
 
 async def crawl_article(url: str) -> dict:
     """
-    Crawl một bài báo và trả về dict chứa metadata + content.
-
-    Returns:
-        {
-            "url": str,
-            "title": str,
-            "date_crawled": str (ISO format),
-            "content_markdown": str
-        }
+    Crawl một bài báo sử dụng Crawl4AI.
     """
     from crawl4ai import AsyncWebCrawler
 
-    # TODO: Implement crawling logic
-    # async with AsyncWebCrawler() as crawler:
-    #     result = await crawler.arun(url=url)
-    #     return {
-    #         "url": url,
-    #         "title": result.metadata.get("title", "Unknown"),
-    #         "date_crawled": datetime.now().isoformat(),
-    #         "content_markdown": result.markdown,
-    #     }
-    raise NotImplementedError("Implement crawl_article")
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun(url=url)
+        return {
+            "url": url,
+            "title": url.split("/")[-1].replace(".htm", "").replace(".html", "").replace("-", " "),
+            "date_crawled": datetime.now().isoformat(),
+            "content_markdown": result.markdown,
+        }
 
 
 async def crawl_all():
@@ -70,7 +61,7 @@ async def crawl_all():
         # Lưu file JSON
         filename = f"article_{i:02d}.json"
         filepath = DATA_DIR / filename
-        filepath.write_text(json.dumps(article, ensure_ascii=False, indent=2))
+        filepath.write_text(json.dumps(article, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"  ✓ Saved: {filepath}")
 
 

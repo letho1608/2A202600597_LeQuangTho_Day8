@@ -61,128 +61,197 @@ Rules:
 def reorder_for_llm(chunks: list[dict]) -> list[dict]:
     """
     Sắp xếp chunks để tránh "lost in the middle" effect.
-
-    LLM nhớ tốt thông tin ở ĐẦU và CUỐI prompt, quên thông tin ở GIỮA.
-    Strategy: đặt chunks quan trọng nhất ở đầu và cuối, kém quan trọng ở giữa.
-
-    Input order (by score):  [1, 2, 3, 4, 5]
-    Output order:            [1, 3, 5, 4, 2]
-    (best first, worst in middle, second-best last)
-
-    Args:
-        chunks: List sorted by score descending (from retrieval)
-
-    Returns:
-        List reordered để maximize LLM attention.
+    Pattern: [1, 3, 5, ..., 4, 2]
     """
-    # TODO: Implement reordering
-    #
-    # if len(chunks) <= 2:
-    #     return chunks
-    #
-    # # Split into first half (important → đầu) and second half (important → cuối)
-    # reordered = []
-    # for i in range(0, len(chunks), 2):
-    #     reordered.append(chunks[i])  # Odd positions go first
-    # for i in range(len(chunks) - 1 - (len(chunks) % 2 == 0), 0, -2):
-    #     reordered.append(chunks[i])  # Even positions go last (reversed)
-    #
-    # return reordered
-    raise NotImplementedError("Implement reorder_for_llm")
+    if len(chunks) <= 2:
+        return chunks
 
+    reordered = []
+    # Các index lẻ (1, 3, 5...) - tương ứng với score cao nhất, thứ 3, thứ 5...
+    for i in range(0, len(chunks), 2):
+        reordered.append(chunks[i])
+    
+    # Các index chẵn (2, 4...) theo thứ tự ngược lại - tương ứng với score thứ 2, thứ 4...
+    # giúp đặt các kết quả tốt thứ 2 ở cuối prompt.
+    for i in range(len(chunks) - 1 - (len(chunks) % 2 == 0), 0, -2):
+        reordered.append(chunks[i])
 
-# =============================================================================
-# CONTEXT FORMATTING
-# =============================================================================
+    return reordered
+
 
 def format_context(chunks: list[dict]) -> str:
     """
     Format chunks thành context string cho prompt.
-    Mỗi chunk có label source để LLM có thể cite.
-
-    Args:
-        chunks: List of {'content': str, 'metadata': dict, 'score': float}
-
-    Returns:
-        Formatted context string.
     """
-    # TODO: Implement context formatting
-    #
-    # context_parts = []
-    # for i, chunk in enumerate(chunks, 1):
-    #     source = chunk.get("metadata", {}).get("source", f"Source {i}")
-    #     doc_type = chunk.get("metadata", {}).get("type", "unknown")
-    #     context_parts.append(
-    #         f"[Document {i} | Source: {source} | Type: {doc_type}]\n"
-    #         f"{chunk['content']}\n"
-    #     )
-    # return "\n---\n".join(context_parts)
-    raise NotImplementedError("Implement format_context")
+    context_parts = []
+    for i, chunk in enumerate(chunks, 1):
+        source = chunk.get("metadata", {}).get("source", f"Source {i}")
+        doc_type = chunk.get("metadata", {}).get("type", "unknown")
+        context_parts.append(
+            f"[Document {i} | Source: {source} | Type: {doc_type}]\n"
+            f"{chunk['content']}\n"
+        )
+    return "\n---\n".join(context_parts)
 
-
-# =============================================================================
-# GENERATION
-# =============================================================================
 
 def generate_with_citation(query: str, top_k: int = TOP_K) -> dict:
     """
-    End-to-end RAG generation có citation.
-
-    Pipeline:
-        1. Retrieve relevant chunks
-        2. Reorder để tránh lost in the middle
-        3. Format context với source labels
-        4. Build prompt (system + context + query)
-        5. Call LLM
-        6. Return answer + sources
-
-    Args:
-        query: Câu hỏi của user
-
-    Returns:
-        {
-            'answer': str,           # Câu trả lời có citation
-            'sources': list[dict],   # Các chunks đã dùng
-            'retrieval_source': str  # 'hybrid' hoặc 'pageindex'
-        }
+    End-to-end RAG generation có citation using real LLMs.
     """
-    # TODO: Implement generation pipeline
-    #
-    # # Step 1: Retrieve
-    # chunks = retrieve(query, top_k=top_k)
-    #
-    # # Step 2: Reorder
-    # reordered = reorder_for_llm(chunks)
-    #
-    # # Step 3: Format context
-    # context = format_context(reordered)
-    #
-    # # Step 4: Build prompt
-    # user_message = f"""Context:\n{context}\n\n---\n\nQuestion: {query}"""
-    #
-    # # Step 5: Call LLM
-    # from openai import OpenAI
-    # client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    #
-    # response = client.chat.completions.create(
-    #     model="gpt-4o-mini",
-    #     messages=[
-    #         {"role": "system", "content": SYSTEM_PROMPT},
-    #         {"role": "user", "content": user_message}
-    #     ],
-    #     temperature=TEMPERATURE,
-    #     top_p=TOP_P,
-    # )
-    #
-    # answer = response.choices[0].message.content
-    #
-    # # Step 6: Return
-    # return {
-    #     "answer": answer,
-    #     "sources": chunks,
-    #     "retrieval_source": chunks[0].get("source", "hybrid") if chunks else "none"
-    # }
-    raise NotImplementedError("Implement generate_with_citation")
+    # Step 1: Retrieve
+    chunks = retrieve(query, top_k=top_k)
+    
+    if not chunks:
+        return {
+            "answer": "Tôi không thể xác minh thông tin này từ nguồn hiện có.",
+            "sources": [],
+            "retrieval_source": "none"
+        }
+
+    # Step 2: Reorder
+    reordered = reorder_for_llm(chunks)
+    
+    # Step 3: Format context
+    context = format_context(reordered)
+    
+    # Step 4: Build prompt
+    prompt = f"Context:\n{context}\n\n---\n\nQuestion: {query}"
+    
+    # Step 5: Call LLM based on provider
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+    answer = ""
+    
+    try:
+        if provider == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            
+            response = client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+            )
+            answer = response.choices[0].message.content
+            
+        elif provider == "google":
+            import google.generativeai as genai
+            genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+            
+            model = genai.GenerativeModel(
+                model_name=os.getenv("GOOGLE_MODEL", "gemini-1.5-flash"),
+                system_instruction=SYSTEM_PROMPT
+            )
+            
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=TEMPERATURE,
+                    top_p=TOP_P,
+                )
+            )
+            answer = response.text
+            
+        elif provider == "anthropic":
+            import anthropic
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            
+            response = client.messages.create(
+                model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+            )
+            answer = response.content[0].text
+            
+        elif provider == "litellm":
+            import litellm
+            # Vô hiệu hóa debug output của litellm nếu không cần thiết
+            litellm.suppress_debug_info = True
+            
+            response = litellm.completion(
+                model=os.getenv("LITELLM_MODEL", "gpt-4o-mini"), # Fallback model
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+            )
+            answer = response.choices[0].message.content
+            
+        elif provider == "ollama":
+            from openai import OpenAI
+            # Ollama cung cấp API tương thích với OpenAI
+            client = OpenAI(
+                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+                api_key="ollama" # api_key là bắt buộc nhưng một số setup cần chuỗi bất kỳ hợp lệ
+            )
+            
+            response = client.chat.completions.create(
+                model=os.getenv("OLLAMA_MODEL", "minimax-m3:cloud"),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+            )
+            answer = response.choices[0].message.content
+            
+        elif provider == "grok":
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=os.getenv("GROK_API_KEY"),
+                base_url="https://api.x.ai/v1",
+            )
+            
+            response = client.chat.completions.create(
+                model=os.getenv("GROK_MODEL", "grok-beta"),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+            )
+            answer = response.choices[0].message.content
+            
+        elif provider == "nvidia":
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=os.getenv("NVIDIA_API_KEY"),
+                base_url="https://integrate.api.nvidia.com/v1",
+            )
+            
+            response = client.chat.completions.create(
+                model=os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+            )
+            answer = response.choices[0].message.content
+            
+        else:
+            answer = f"Lỗi: Provider '{provider}' không được hỗ trợ."
+            
+    except Exception as e:
+        answer = f"Lỗi trong quá trình gọi LLM ({provider}): {e}\n\nCấu hình API Key trong file .env có thể chưa đúng."
+    
+    # Step 6: Return
+    return {
+        "answer": answer,
+        "sources": chunks,
+        "retrieval_source": chunks[0].get("source", "hybrid") if chunks else "none"
+    }
 
 
 if __name__ == "__main__":
