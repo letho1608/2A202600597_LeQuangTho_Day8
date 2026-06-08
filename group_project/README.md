@@ -1,31 +1,79 @@
 # Báo Cáo Nhóm - RAG Pipeline System
 
 ## Thành viên và Phân công
-| Thành viên | MSSV | Nhiệm vụ & Strategy đóng góp | Trạng thái |
+| Thành viên | MSSV | Nhiệm vụ | Trạng thái |
 |-----------|------|----------|------------|
-| Lê Quang Thọ | 2A202600597 | **Trưởng nhóm.** Đóng góp **Retrieval Strategy** (Hybrid Search + RRF + PageIndex Fallback). Chịu trách nhiệm ghép nối (Integration) và Evaluation Pipeline. | Đã hoàn thành 100% |
-| Nguyễn Văn A | 2A202600XXX | Đóng góp **Data Strategy** (Crawl báo chí tự động với Crawl4AI) và **Chunking Strategy** (RecursiveCharacter 500/50). | Đã hoàn thành 100% |
-| Trần Thị B | 2A202600YYY | Đóng góp **Generation Strategy** (Reorder for LLM chống lost-in-the-middle, Multi-provider LLM) và thiết kế **UI Streamlit**. | Đã hoàn thành 100% |
+| Lê Quang Thọ | 2A202600597 | Thu thập/kiểm tra dữ liệu pháp luật, chuẩn hóa nguồn legal | Done |
+| Phạm Mai Anh | 2A202600644 | Thu thập bài báo, kiểm tra metadata news và source documents | Done |
+| Đỗ Trung Đức | 2A202600918 | Chunking, indexing, semantic search và lexical search | Done |
+| Phạm Ngọc Hải Dương | 2A202600629 | Backend FastAPI, frontend chatbot, tích hợp generation có citation | Done |
+| Vương Nguyệt Bình | 2A202600932 | Evaluation pipeline, golden dataset, A/B comparison | Done |
+| Nguyễn Văn Sáng | 2A202600598 | QA demo, kiểm thử end-to-end, README và báo cáo kết quả | Done |
 
-## Kiến trúc hệ thống (Tích hợp từ các thành viên)
-Hệ thống là sự kết hợp các chiến lược (strategies) tốt nhất từ bài tập cá nhân của 3 thành viên:
+## Kiến trúc hệ thống (Tích hợp)
 
-1. **Data Ingestion & Chunking (Strategy của bạn A):**
-   - Text extraction từ PDF, DOCX và Crawler JSON tự động.
-   - Sử dụng `RecursiveCharacterTextSplitter` (size 500, overlap 50) được chứng minh là giữ ngữ cảnh luật tốt nhất qua bài test cá nhân của A.
+```mermaid
+graph TD
+    %% Data Ingestion
+    subgraph Data Processing
+        A1[Legal PDFs] --> B[MarkItDown]
+        A2[News JSON] --> B
+        B --> C[Markdown Files]
+        C --> D[RecursiveCharacterTextSplitter]
+        D --> E[all-MiniLM-L6-v2 Embeddings]
+        E --> F[(ChromaDB Vector Store)]
+        C --> G[BM25 Index]
+    end
 
-2. **Advanced Retrieval Pipeline (Strategy của Thọ):**
-   - Đề xuất mô hình 3 lớp: Semantic Search (Dense) song song với Lexical Search (BM25 - Sparse).
+    %% Retrieval Pipeline
+    subgraph Retrieval Pipeline
+        Q[User Query] --> H{Score Threshold}
+        Q --> I[Semantic Search]
+        Q --> J[Lexical Search]
+        I --> K(Reciprocal Rank Fusion - RRF)
+        J --> K
+        K --> L[Cross-Encoder Reranking]
+        L --> H
+        H -- Low Score --> M[PageIndex API Fallback]
+        H -- High Score --> N[Final Retrieved Chunks]
+        M --> N
+    end
+
+    %% Generation
+    subgraph Generation & UI
+        N --> O[Reorder for LLM]
+        O --> P[Context + Prompt]
+        P --> R{LLM Provider}
+        R --> S[Streamlit Chat UI]
+        R -.-> T[OpenAI / Gemini / Ollama / etc.]
+    end
+
+    F -.-> I
+    G -.-> J
+```
+
+Hệ thống là sự kết hợp các chiến lược (strategies) tốt nhất từ bài tập cá nhân của các thành viên trong nhóm:
+
+1. **Data Ingestion & Processing:**
+   - Text extraction từ PDF (dữ liệu pháp luật) và Crawler JSON tự động (tin tức báo chí).
+   - Chuẩn hóa toàn bộ dữ liệu về định dạng Markdown.
+
+2. **Chunking & Indexing:**
+   - Sử dụng `RecursiveCharacterTextSplitter` (size 500, overlap 50) để giữ ngữ cảnh pháp lý tốt nhất.
+   - Embeddings với `all-MiniLM-L6-v2` và lưu trữ trong `ChromaDB`.
+
+3. **Advanced Retrieval Pipeline:**
+   - Đề xuất mô hình đa lớp: Semantic Search (Dense) song song với Lexical Search (BM25 - Sparse).
    - Gộp kết quả bằng thuật toán `RRF` (Reciprocal Rank Fusion) và `Cross-Encoder Reranking`.
-   - **Đột phá:** Đưa logic Fallback sang API `PageIndex` vào hoạt động thực tế khi query score quá thấp.
+   - **Fallback Logic** sang API `PageIndex` (Vectorless RAG) hoạt động thực tế khi query score quá thấp.
 
-3. **Generation & UI (Strategy của bạn B):**
-   - Kế thừa kỹ thuật `Reorder for LLM` từ bài cá nhân của B để đưa chunk quan trọng lên đầu/cuối prompt.
-   - Hỗ trợ linh hoạt 7 nền tảng LLM (OpenAI, Gemini, Anthropic, LiteLLM, Ollama, Grok, Nvidia NIM) điều khiển qua `.env`.
-   - Bọc toàn bộ pipeline vào giao diện Streamlit (`app.py`) thân thiện.
+4. **Generation & UI:**
+   - Áp dụng kỹ thuật `Reorder for LLM` để đưa chunk quan trọng lên đầu/cuối prompt tránh "lost-in-the-middle".
+   - Hỗ trợ linh hoạt đa nền tảng LLM (OpenAI, Gemini, Anthropic, LiteLLM, Ollama, Grok, Nvidia NIM) cấu hình qua `.env`.
+   - Giao diện người dùng Streamlit thân thiện.
 
-4. **Evaluation Framework (Nhiệm vụ chung):**
-   - 15 cặp Q&A Golden Dataset trải đều lĩnh vực pháp luật và tin tức.
+5. **Evaluation Framework:**
+   - Xây dựng 15 cặp Q&A Golden Dataset trải đều lĩnh vực pháp luật và tin tức.
    - Sử dụng thư viện `DeepEval` để benchmark hệ thống trên 4 chỉ số: Faithfulness, Answer Relevancy, Contextual Relevancy, Contextual Precision.
 
 ## Hướng dẫn chạy
